@@ -139,7 +139,7 @@ public:
 	  // Exhaust characters in s
 	  Node * curNode = root;
 	  int strIndx = 0;
-	  Node * deepestNode;
+	  Node * deepestNode = nullptr;
 	  int deepestNodeLength = 0;
 	  
 	  auto outgoing = root->m_outgoing; // start from root
@@ -194,21 +194,46 @@ public:
 			   deepestNode = deepestNode->m_parentEdge.first;
 			   }*/
 		  //std::cout << lcs;
-	  
 	  std::vector<int> ret;
 	  //	  std::cout << " " << deepestNodeLength << '\n';
+	  if (deepestNode == nullptr)
+	    return ret;
 	  if (deepestNodeLength < x){
 	    std::cout << "Insufficient number of characters matched to perform local alignment \n";
 	    return ret; // empty
 	  }
-	  for (auto p : deepestNode->m_outgoing){
-	    auto edge = p.second;
-	    ret.push_back(edge.second.start() - deepestNodeLength - excess);
+	  std::vector<std::pair<Node*,int>> leaves = GetLeaves(deepestNode);
+	  for (auto l : leaves){
+	    auto leaf = l.first;
+	    if (l.second == 0){
+	      // is suffix (trivial)
+	      ret.push_back(Rope::str->length()-deepestNodeLength-excess);
+	    }
+	    else
+	      ret.push_back((leaf->m_parentEdge.second.start()+leaf->m_parentEdge.second.length())-l.second-excess- deepestNodeLength);// - deepestNodeLength - excess);
 	  }
 	  // NOTE: IF NOT OUTGOING EDGES, MUST BE A NON-REPEATED SUFFIX. THEN START LOCATION IS SequenceLength - deepestNodeLength
-	  if (deepestNode->m_outgoing.size() == 0)
+	  /*	  if (deepestNode->m_outgoing.size() == 0){
 	    ret.push_back(Rope::str->length() - deepestNodeLength);
+	    }*/
 	   return ret;
+	}
+
+	std::vector<std::pair<Node *,int>> GetLeaves(Node * node,int offset=0){
+	  std::vector<std::pair<Node *,int>> ret;
+	  if (node->m_outgoing.size() == 0)
+	    ret.push_back(std::make_pair(node,offset));
+	  for (auto p : node->m_outgoing){
+	    auto edge = p.second;
+	    auto res = GetLeaves(edge.first, offset+edge.second.length());
+	    ret.insert(ret.begin(), res.begin(), res.end());
+	  }
+	  /*	  std::cout << '[';
+	  for (int i = 0; i < ret.size(); ++i){
+	    std::cout << ret[i].first << ',';
+	  }
+	  std::cout << ']' << '\n';;*/
+	  return ret;
 	}
 	/* END MAP READ FUNCTIONS */
 	void getLongestSubStringLocs(){
@@ -235,7 +260,7 @@ public:
 	    auto edge = p.second;
 	    std::cout << edge.second.start()-LCS_len + 1<< '\n';
 	  }
-
+	  
 	}
 
 	// START MAY NOT BE NULL!

@@ -61,7 +61,7 @@ int main(int argc, char * argv[]){
   time = std::clock() - time;
   //std::cout << "Time: " << time/(double)(CLOCKS_PER_SEC/1000000) << " micro seconds\n";
 
-  std::vector<string> reads = {"a", "an", "ana", "na", "nana", "ban", "bana"};
+  std::vector<string> reads = {"ssi", "s", "ppi", "ippi", ""};
   t->MapReads(reads, 0);
   return 1;
 }
