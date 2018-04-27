@@ -3,6 +3,7 @@
 #include <fstream>
 #include <set>
 #include <ctime>
+#include <string.h>
 
 using std::istream;
 using std::set;
@@ -32,8 +33,8 @@ bool inAlphabet(char c){
 }
 int main(int argc, char * argv[]){
 
-  if (argc < 3){
-    std::cout << "Usage: ./suffixTree <filepath> <alphabetpath>\n";
+  if (argc < 4){
+    std::cout << "Usage: ./suffixTree <filepath> <alphabetpath> <readpath>\n";
     exit(0);
   }
  
@@ -44,24 +45,33 @@ int main(int argc, char * argv[]){
     std::cout << "Failed to open input file: " << argv[1] << '\n';
     exit(-1);
   }
+
   initAlphabet(argv[2]);
   //  showAlphabet();
   string s;
   string buffer = "";
-  
+
+  string fname = argv[1];
+
+  if (strcmp(strrchr(argv[1], '.'),".fasta") == 0){
+    fprintf(stderr,"Fasta File   \n");
+    std::getline(inputFile,buffer);
+    buffer.clear();
+  }
   while (std::getline(inputFile, buffer)){
     for (int i = 0; i < buffer.length(); ++i)
       if (inAlphabet(buffer[i])) // <--- O(1)
 	s += buffer[i];
     buffer.clear();
   }
+  SuffixTree * t = new SuffixTree(&s);
+  
+
+  std::vector<string> reads = {"CAACTAAAGCCATGAATGTCTAATGATACAAATAAGACAGTACCCGCAGTCTCAAATATTTAGCCTAAGTTGCATAACAAGTTGGCTTCCATAATGAGAGACT"};
   std::clock_t time;
   time = std::clock();
-  SuffixTree * t = new SuffixTree(&s);
+  t->MapReads(argv[3]);
   time = std::clock() - time;
-  //std::cout << "Time: " << time/(double)(CLOCKS_PER_SEC/1000000) << " micro seconds\n";
-
-  std::vector<string> reads = {"ssi", "s", "ppi", "ippi", ""};
-  t->MapReads(reads, 0);
+  std::cout << "Read Map: " << time/(double)(CLOCKS_PER_SEC/1000000) << " seconds\n";
   return 1;
 }

@@ -1,16 +1,17 @@
-/* TODO: Replace vector with map in node outgoing for easier access to indices */
-
 #include <iostream>
 #include <vector>
 #include <utility>
 #include <string>
 #include <algorithm>
 #include <map>
-
+#include <fstream>
+#include <ctime>
+#include "Alignment.h" // Semi-global, global, local alignment
 using std::string;
 using std::pair;
 using std::vector;
 using std::map;
+using std::istream;
 
 // Use map for easy lexicographical ordering and fast member access ( Theta(log n) )
 // usage of Rope class motivated by wanting O(1) substr operation on strings and also for space efficiency
@@ -24,8 +25,13 @@ public:
 		m_length = str->length();
 	}
 	Rope(size_t start, size_t len=str->length()){
-		startIndx = start;
-		m_length=len;
+	  if (start < 0)
+	    start = 0;
+	  if (start + len >= str->length()){
+	    len = str->length() - start;
+	  }
+	  startIndx = start;
+	  m_length=len;
 	}
 	void print() const{
 		for (size_t i = 0; i < m_length; ++i)
@@ -37,11 +43,11 @@ public:
 		return str->at(index + startIndx);
 	}
 	Rope substr(size_t const index, size_t const len) const{
-		return Rope(index+startIndx, len);
+	  return Rope(index+startIndx, len);
 	}
 	string cpp_string() const{
 		string ret = "";
-		for (size_t i = 0; i < m_length; ++i)
+		for (size_t i = 0; i < m_length && i < str->length(); ++i)
 			ret += this->at(i);
 		return ret;
 	}
@@ -80,14 +86,13 @@ public:
 	int end_leaf_index;
 	/* Note: start/end_leaf_index refers to the leafs underneath the current node
 	   	 corresponding to the indexes in the leaflist. Useful for ReadMapping. If not
-		 performing a ReadMap, remove these */
+		 performing a ReadMap, not necessarily necessary */
 };
 
 class SuffixTree{
 public:
 	SuffixTree(string * s){
 		Rope::str = s; // initialize rope class static member str
-		// Initialize root and add the first string
 		Rope t;
 		root = new Node();
 		auto p = std::make_pair(root, Rope());
@@ -95,11 +100,21 @@ public:
 		Node * tempNode = new Node();
 		root->m_outgoing['$'] = std::make_pair(tempNode,Rope(0,0));
 		tempNode->m_parentEdge = p;
-		//DoNaiveConstruction(); <--- Function is broken... it was too slow anyways.
+		
+		std::clock_t st_construction_time;
+		st_construction_time = std::clock();
 		LinearTimeConstruction();
-		TrimTree(root); // Delete superfluous nodes (artifacts of findpath)
-		outputTree(root, "");
+		TrimTree(root); // Delete superfluous nodes (artifacts of findpath
+		st_construction_time = std::clock()-st_construction_time;
+		fprintf(stderr,"Suffix Tree Construction: %f seconds\n",st_construction_time/(double)(CLOCKS_PER_SEC));
+
+
+		std::clock_t st_prepare_time;
+		st_prepare_time = std::clock();
 		PrepareST(root, 0);
+		st_prepare_time = std::clock()-st_prepare_time;
+		fprintf(stderr,"Suffix Tree Prep: %f seconds\n",st_prepare_time/(double)(CLOCKS_PER_SEC));
+
 		//		FindLoc("ss", 0);
 		/*		std::cout << '\n';
 		std::cout << "START BWT: ******************\n";
@@ -108,33 +123,103 @@ public:
 		std::cout << "END BWT:   ******************\n\n";
 		getLongestSubStringLocs();*/			       		
 	}
-
 	/* BEGIN MAP READ FUNCTIONS */
 
 	/* IMPORTANT! MUST CALL PrepareST() PRIOR TO CALLING THIS FUNCTION */
-	void MapReads(std::vector<string> reads, int x){
-	  int m = reads.size();
-	  for (int i = 0; i < m; ++i){
+	void MapReads(char * read_fname,/*std::vector<string> reads*/ int x=90, int y=80){
+	  double findLocTotalSeconds = 0;
+	  double mapTotalSeconds = 0;
+	  double outputTotalSeconds = 0;
+	  int m = 0, totalAligned = 0;
+	  std::ifstream readFile;
+	  readFile.open(read_fname);
+	  if(readFile.fail()){
+	    std::cout << "failed to open read file: " << read_fname << '\n';
+	  }
+	  double successRate=0;
+	  double numTrials=0;
+	  string readName = "";
+	  while (std::getline(readFile,readName)){
+	    std::pair<int,int> bestHitIndices;
+	    ++m;
+	    double bestMatchPercent = 0;
+	    int longestSoFar = 0;
+
 	    /* 3 A */
-	    int l = reads[i].length();
-	    string & r_i = reads[i];
+	    bool isHit = false;
+	    string r_i;
+	    std::getline(readFile,r_i);
+	    int l = r_i.length();
 	    /* END 3 A */
 
 	    /* 3 B */
-	    auto starts = FindLoc(r_i, x);
-	    std::cout << reads[i] << ':';
-	    if (starts.size() == 0){std::cout << '\n'; // insufficient evidence that the read is a contained in our main sequence
+	    std::clock_t t;
+	    t = std::clock();
+	    auto starts = FindLoc(r_i, 25);
+	    findLocTotalSeconds += std::clock() - t; // tally time for exact match
+	    
+	    if (starts.size() == 0)// insufficient evidence that the read is a contained in our main sequence
 	      continue;
-	    }
-	    for (int j : starts){
-	      std::cout  << j << ';';
-	    }
-	    std::cout << '\n';
-	    /* END 3 B */	   
-	  }
-	}
+	    /* END 3 B */
 
-	/* TODO: Convert deepestNode into a list of potential deepestNode candidates. THEN, remove all nodes in that list that are less than the longest length found */
+	    /* 3 C */
+	    t = std::clock();
+	    for (auto start : starts){
+	      GL_Alignment AlignTool(1,-2,-5,-1);
+	      ++totalAligned;
+	      string s2 = r_i;
+	      //	      std::cout << "********" << start << '\n';
+	      int ss = start - l;
+	      int se = start + l;
+
+	      if (ss < 0)
+		ss = 0;
+	      if (se > Rope::str->length())
+		se = Rope::str->length();
+	      Rope seq(ss,(se-ss+1));
+	      string s1 = seq.cpp_string();
+	      int * stat = AlignTool.LocalAlignment(s1,s2);
+	      
+	      double percentIdentity = 100*(double)stat[0]/(double)stat[1];
+	      double lengthCoveragePercent = 100*(double)stat[1]/(double)l;
+	      
+	      if (percentIdentity >= x && lengthCoveragePercent >= y && stat[0] > longestSoFar){
+		bestMatchPercent = percentIdentity;
+		bestHitIndices.first = ss+stat[2];
+		bestHitIndices.second = bestHitIndices.first+stat[1];
+		longestSoFar = stat[0];
+		isHit=true;
+	      }
+	      delete stat;
+	    }
+	    mapTotalSeconds += std::clock() - t;
+	    /* END 3 C */
+	    // OUTPUT
+
+	    t = std::clock();
+	    if (isHit == false){
+	      std::cout << "<" << &readName[1] << ">" << "No hit found\n";
+	    }
+	    else{
+	    std::cout << "<" << &readName[1] << "><" << bestHitIndices.first << "><" << bestHitIndices.second-1 << ">\n";
+	    ++successRate;
+	    }
+	    ++numTrials;
+	    outputTotalSeconds += std::clock() - t;
+	  }
+	  successRate/=numTrials;
+	  findLocTotalSeconds/=CLOCKS_PER_SEC;
+	  mapTotalSeconds/=CLOCKS_PER_SEC;
+	  totalAligned/=CLOCKS_PER_SEC;
+	  outputTotalSeconds/=CLOCKS_PER_SEC;
+	  fprintf(stderr,"Total time spent on exact matching: %f seconds\n", findLocTotalSeconds);
+	  fprintf(stderr,"Total time spent on mapping: %f seconds\n", mapTotalSeconds);
+	  fprintf(stderr,"Average aligns per read: %f seconds\n", (double)totalAligned/m);
+	  fprintf(stderr,"Average time spent outputting results: %f seconds\n",outputTotalSeconds);
+	  fprintf(stderr,"Hit Rate: %f%%\n",successRate*100); 
+	  }
+
+
 	std::vector<int> FindLoc(string s, int x){
 	  // Exhaust characters in s
 	  Node * curNode = root;
@@ -199,7 +284,7 @@ public:
 	  if (deepestNode == nullptr)
 	    return ret;
 	  if (deepestNodeLength < x){
-	    std::cout << "Insufficient number of characters matched to perform local alignment \n";
+	    //std::cout << "Insufficient number of characters matched to perform local alignment \n";
 	    return ret; // empty
 	  }
 	  std::vector<std::pair<Node*,int>> leaves = GetLeaves(deepestNode);
@@ -212,28 +297,29 @@ public:
 	    else
 	      ret.push_back((leaf->m_parentEdge.second.start()+leaf->m_parentEdge.second.length())-l.second-excess- deepestNodeLength);// - deepestNodeLength - excess);
 	  }
-	  // NOTE: IF NOT OUTGOING EDGES, MUST BE A NON-REPEATED SUFFIX. THEN START LOCATION IS SequenceLength - deepestNodeLength
-	  /*	  if (deepestNode->m_outgoing.size() == 0){
-	    ret.push_back(Rope::str->length() - deepestNodeLength);
-	    }*/
 	   return ret;
 	}
 
 	std::vector<std::pair<Node *,int>> GetLeaves(Node * node,int offset=0){
 	  std::vector<std::pair<Node *,int>> ret;
-	  if (node->m_outgoing.size() == 0)
+
+	  /* OLD NAIVE CODE */
+	  /*	  if (node->m_outgoing.size() == 0)
 	    ret.push_back(std::make_pair(node,offset));
 	  for (auto p : node->m_outgoing){
 	    auto edge = p.second;
 	    auto res = GetLeaves(edge.first, offset+edge.second.length());
 	    ret.insert(ret.begin(), res.begin(), res.end());
-	  }
-	  /*	  std::cout << '[';
-	  for (int i = 0; i < ret.size(); ++i){
-	    std::cout << ret[i].first << ',';
-	  }
-	  std::cout << ']' << '\n';;*/
+	    }*/
+	  
+	  for (int i = node->start_leaf_index; i <= node->end_leaf_index; ++i){
+	    std::pair<Node *, int> p;
+	    p.first = LeafNodes[i];
+	    p.second = LeafNodes[i]->m_parentEdge.second.start()+LeafNodes[i]->m_parentEdge.second.length() - (node->m_parentEdge.second.start() + node->m_parentEdge.second.length());
+	    ret.push_back(p);
+	    }
 	  return ret;
+	  
 	}
 	/* END MAP READ FUNCTIONS */
 	void getLongestSubStringLocs(){
@@ -314,17 +400,19 @@ public:
 
 	/* Functions for ReadMapping */
 	int nextIndex = 0;
-	void PrepareST(Node *& start, int slen){ // dfs procedure
+	void PrepareST(Node * start, int slen){ // dfs procedure
 	  // LEAF CASE
 	  if (start->m_outgoing.size() == 0){ // Is a leaf node
 	    int i = (int)(Rope::str->length()) - slen;
-	    LeafList.push_back(i); // Leaf index
-	    start->start_leaf_index = start->end_leaf_index = nextIndex++;
+	    LeafNodes.push_back(start);
+	    start->start_leaf_index = start->end_leaf_index = nextIndex;
+	    ++nextIndex;
 	    char c = (i==0) ? '$' : Rope::str->at(i-1);
 	    if (c != '\n') // if string is from file, may be terminated by end line char
 	      BWT.push_back(c);
 	    //	    std::cout << "<" << start->start_leaf_index << "," << start->end_leaf_index << ">" << '\n';
 	    return;
+	    
 	  }
 	   
 
@@ -576,7 +664,6 @@ public:
 	void getBWT(Node *& start, int slen){ // dfs procedure
 	  if (start->m_outgoing.size() == 0){ // Is a leaf node
 	      int i = (int)(Rope::str->length()) - slen;
-	      LeafList.push_back(i); // Leaf index
 	      char c = (i==0) ? '$' : Rope::str->at(i-1);
 	      if (c != '\n') // if string is from file, may be terminated by end line char
 		BWT.push_back(c);
@@ -588,7 +675,7 @@ public:
 	  }
 	}
 	std::vector<char> BWT;
-	std::vector<int> LeafList; // Leaf indexes from left to right in ST
+	std::vector<Node *> LeafNodes;
 	Rope * LCS = nullptr;
 	Node * root;
 };

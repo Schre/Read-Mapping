@@ -29,10 +29,11 @@ class GL_Alignment{
     this->h = hv;
     this->g = gv;
   }
-  std::vector<string> GlobalAlignment(string &s1, string &s2){
+  int * GlobalAlignment(string &s1, string &s2){
     return Align(s1,s2, false);
   }
-  std::vector<string> LocalAlignment(string &s1, string &s2){
+  int * LocalAlignment(string &s1, string &s2){
+    //std::cout << s1.length() << " " << s2.length() << '\n';
     return Align(s1,s2,true);
   }
  private:
@@ -49,17 +50,16 @@ class GL_Alignment{
     return DP;
   }
   void InitArray(dp_cell **DP, unsigned long m, unsigned long n, bool flag = 0){
-    if (flag)
-      return;
+    int min = (flag == 0) ? INT32_MIN : 0;
     DP[0][0].S = 0;
-    DP[0][0].I = DP[0][0].D = INT32_MIN;
+    DP[0][0].I = DP[0][0].D = min;
     
     for (int i = 1; i < m+1; ++i){
-      DP[i][0].I = DP[i][0].S = INT32_MIN;
+      DP[i][0].I = DP[i][0].S = min;
       DP[i][0].D = h + g*i;
     }
     for (int j = 1; j < n+1; ++j){
-      DP[0][j].D = DP[0][j].S = INT32_MIN;
+      DP[0][j].D = DP[0][j].S = min;
       DP[0][j].I = h + g*j;
     }
   }
@@ -126,12 +126,35 @@ class GL_Alignment{
     }
     }
     
+      
+      // FLAG --> BOTH i AND j are GREATER THAN 0
+      /*      
+      if (*i > 0 && *j > 0){flag = true; val = max3(getScore(DP[*i-1][*j-1]), getScore(DP[*i-1][*j]),getScore(DP[*i][*j-1]);}
+
+      if (flag && val == getScore(DP[*i-1][*j-1])){// Sub
+	aligneds2.insert(aligneds2.begin(),s2[*j-1]);
+	aligneds1.insert(aligneds1.begin(),s1[*i-1]);
+	(*i)--; (*j)--;
+     }
+      else if ((!flag && *j > 0) || (flag && val == getScore(DP[*i][*j-1]))){ // Insert
+	aligneds2.insert(aligneds2.begin(),s2[*j-1]);
+	aligneds1.insert(aligneds1.begin(),'-');
+	(*j)--;
+      }
+      else if ((!flag && *i > 0) || (flag && val == getScore(DP[*i-1][*j]))){ // Delete
+	aligneds2.insert(aligneds2.begin(),'-');
+	aligneds1.insert(aligneds1.begin(), s1[*i-1]);
+	(*i)--;
+      }     
+      else if (*i == 0 && *j == 0)
+      break;
+      }*/
     ret.push_back(aligneds1);
     ret.push_back(aligneds2);
     return ret;
   }
   
-  vector<string> Align(string & s1, string & s2, bool flag); // if flag == 1 local align 
+  int * Align(string & s1, string & s2, bool flag); // if flag == 1 local align 
   //
 
   
@@ -141,11 +164,11 @@ class GL_Alignment{
   int h;
 };
 
-std::vector<string> GL_Alignment::Align(string & s1, string & s2, bool flag = 0){
+int * GL_Alignment::Align(string & s1, string & s2, bool flag = 0){
   int m = s1.length();
   int n = s2.length();
   int option;
-  std::cout << "KEY: \tMatch: " << match << "\tMismatch: "<< mismatch << "\tG: " << g << "\tH: " << h << std::endl; 
+  //std::cout << "KEY: \tMatch: " << match << "\tMismatch: "<< mismatch << "\tG: " << g << "\tH: " << h << std::endl; 
   // Set option to 0 for local, otherwise -inifinity
   (flag == 0) ? option = INT32_MIN : option = 0;
   dp_cell ** DP = CreateCellArray(m,n);
@@ -190,10 +213,23 @@ std::vector<string> GL_Alignment::Align(string & s1, string & s2, bool flag = 0)
     row = m;
     col = n;
   }
-  std::cout << "SCORE: " << getScore(DP[row][col]) << '\n';
+  //std::cout << "SCORE: " << getScore(DP[row][col]) << '\n';
   std::vector<string> ret;
   char c = 0;
   ret = Backtrace(DP,s1,s2,&row,&col, flag);
-  OutputAlignment(ret[0], ret[1], 60, row, col,  match, mismatch, h, g, flag);
-  return ret;
+  int offset = row + col;
+  int start = 0;
+  //  std::cout << s1 << ' ' << s2 << '\n';
+  std::pair<int,int> r =  OutputAlignment(ret[0],ret[1],60,start,match,mismatch,h,g,flag,false);
+  int * re = (int *)(malloc(3*sizeof(int)));
+  re[0] = r.first;
+  re[1] = r.second;
+  re[2] = offset;
+
+
+  for (int k = 0; k < m+1; ++k){
+    free(DP[k]);
+  }
+  free(DP);
+  return re;
 }
